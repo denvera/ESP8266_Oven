@@ -144,6 +144,7 @@ void ICACHE_FLASH_ATTR loop() {
     if (btnNow != btnState) {
       btnState = btnNow;
       if (btnState == LOW) {
+        last_state_ts = millis();
         switch (current_state) {
           case STATE_IDLE:
             Serial.println("IDLE -> STATUS");
