@@ -29,19 +29,22 @@
 #define START_TEMP 50
 #define DEBOUNCE_TIME 50
 #define BUTTON D0
+#define TC_DO D5
+#define TC_CS D6
+#define TC_CLK D7
+
 ESP8266WebServer server(80);
 
-int thermoDO = D5;
-int thermoCS = D6;
-int thermoCLK = D7;
-MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
+
+MAX6675 thermocouple(TC_CLK, TC_CS, TC_DO);
 
 Encoder enc(D4, D3);
 
 char timestamp[26];
 unsigned short current_index = 0;
 unsigned long last_event_ts = 0, last_state_ts = 0, debounce_ts = 0;
-short set_temp = 0;
+short set_temp = 0, set_time = 0;
+double current_temp = 0;
 enum states { STATE_IDLE, STATE_STATUS, STATE_SET_TEMP, STATE_SET_TIME };
 enum states current_state = STATE_STATUS, old_state = STATE_IDLE;
 byte lastBtnState = HIGH, btnState = HIGH;
@@ -59,8 +62,10 @@ long oldPosition  = 0, lastPosition = 0;
 char * ICACHE_FLASH_ATTR asctime_iso(struct tm *tim_p ,char *result);
 void ICACHE_FLASH_ATTR setupWebServer();
 void ICACHE_FLASH_ATTR initScreen();
+void ICACHE_FLASH_ATTR statusScreen(String msg, int currentTemp, int setTemp);
 void ICACHE_FLASH_ATTR statusScreen(String msg);
 void ICACHE_FLASH_ATTR idleScreen();
+void ICACHE_FLASH_ATTR idleScreen(String msg);
 void ICACHE_FLASH_ATTR setupOTA();
 
 void ICACHE_FLASH_ATTR setup() {  
@@ -116,12 +121,12 @@ void check_timeout() {
 }
 
 void state_idle() {
-  idleScreen();
+  idleScreen(String(current_temp) + " °C");
 }
 
 void state_status() {
   check_timeout();
-  statusScreen("Current Temp: " + String(set_temp));
+  statusScreen("Set Point: " + String(set_temp) + " °C", current_temp, set_temp);
 }
 void state_set_temp() {
   check_timeout();
@@ -130,7 +135,11 @@ void state_set_temp() {
 
 void state_set_time() {  
   check_timeout();
-  statusScreen("Set Time: ????");
+  if (set_time != 0) {
+    statusScreen("Set Time: " + String(set_time));
+  } else {
+    statusScreen("Timer Disabled");
+  }
 }
 
 void ICACHE_FLASH_ATTR loop() {
@@ -177,6 +186,7 @@ void ICACHE_FLASH_ATTR loop() {
       gmtime_r(&now, &timeinfo);
       asctime_iso(&timeinfo, timestamp);
       double tempc = thermocouple.readCelsius();  
+      current_temp = tempc;
       last_event_ts = millis();
       Serial.print(timestamp);  
       if (isnan(tempc)) { 
@@ -208,6 +218,7 @@ void ICACHE_FLASH_ATTR loop() {
         old_state = current_state;
         current_state = STATE_STATUS;
       } else if (current_state == STATE_STATUS) {
+        Serial.println("Cur Temp: " + String(current_temp) + " Set: " + String(set_temp) + " %: " + String(float(current_temp)/float(set_temp)));
         old_state = current_state;
         current_state = STATE_SET_TEMP;
       } else if (current_state == STATE_SET_TEMP) {
@@ -218,6 +229,16 @@ void ICACHE_FLASH_ATTR loop() {
             set_temp -= 10;
           } else {
             set_temp = 0;
+          }
+        }
+      } else if (current_state == STATE_SET_TIME) {
+        if (newPosition > oldPosition) {
+          set_time += 1;
+        } else {
+          if (set_time >= 1) {
+            set_time -= 1;
+          } else {
+            set_time = 0;
           }
         }
       }
