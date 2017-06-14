@@ -1,6 +1,6 @@
-void setupOTA() {
+void ICACHE_FLASH_ATTR setupOTA() {
   // Setup OTA
-  Serial.println("Initializing OTA...");  
+  Serial.println(F("Initializing OTA..."));  
 #ifdef OTA_NAME  
   #warning "Setting OTA name"
   ArduinoOTA.setHostname(OTA_NAME);
@@ -16,7 +16,7 @@ void setupOTA() {
     }
     else { // U_SPIFFS
       type = "filesystem";
-      SPIFFS.end();
+      //SPIFFS.end();
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
     }
     Serial.println("Start updating " + type);
