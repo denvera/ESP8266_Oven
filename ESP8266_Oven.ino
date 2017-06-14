@@ -140,7 +140,7 @@ void ICACHE_FLASH_ATTR loop() {
   if (btnNow != lastBtnState) {
     debounce_ts = millis();
   }
-  if (millis() - debounce_ts > DEBOUNCE_TIME) {
+  if (millis() - debounce_ts > DEBOUNCE_TIME) {    
     if (btnNow != btnState) {
       btnState = btnNow;
       if (btnState == LOW) {
@@ -163,6 +163,11 @@ void ICACHE_FLASH_ATTR loop() {
             current_state = STATE_STATUS;
             break;
         }
+      }
+    } else {
+      if (millis() - debounce_ts > 1000) {
+        btnState = HIGH;
+        debounce_ts = millis();
       }
     }
   }
