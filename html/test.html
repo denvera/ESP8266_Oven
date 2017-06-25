@@ -10,11 +10,12 @@
 					var data = new google.visualization.DataTable();
 					data.addColumn('datetime', 'Time');        
 					data.addColumn('number', 'Temp \xB0C');
+					data.addColumn('number', 'Set Temp \xB0C');
 					data.addColumn({type: 'boolean', role: 'certainty' })
-					var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[1], (e[3] > 0) ? true : false ] });
+					var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[1], e[2], (e[3] > 0) ? true : false ] });
 					data.addRows(chart_data);
-
-					var options = {'title':'Oven Temperature', colors: ['red'], pointsVisible: true, curveType: 'function', legend: { position: 'bottom' } };        					
+					var series = { 0: { }, 1: { color: 'blue', curveType: 'none',  }  };
+					var options = {'title':'Oven Temperature', colors: ['red'], pointsVisible: false, curveType: 'function', legend: { position: 'bottom' }, series: series };        					
 					var chart = new google.visualization.LineChart(document.getElementById('temps'));
 					chart.draw(data, options);
 					});				  

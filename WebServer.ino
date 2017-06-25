@@ -67,7 +67,8 @@ void ICACHE_FLASH_ATTR handleTemps() {
     if (t) {
       server.sendContent("\t[ \"" + String(t->timestamp) + "\", " \
                              + ((isnan(t->temp)) ? "null" : String(t->temp)) + ", " \
-                             + String(t->output) \
+                             + String(t->set_temp) + ", " \
+                             + String(t->output) + \
                              + " ]" + ((i<(numTemps-1)) ? "," : "") + "\r\n");
     }
   }
@@ -77,6 +78,33 @@ void ICACHE_FLASH_ATTR handleTemps() {
   server.client().stop();  
   temps_json = String();  
 }
+void ICACHE_FLASH_ATTR handleSetPID() {    
+  if (server.hasArg("p"))
+    Kp = server.arg("p").toFloat();
+  if (server.hasArg("i"))
+    Ki = server.arg("i").toFloat();
+  if (server.hasArg("d"))
+    Kd = server.arg("d").toFloat();  
+  OvenPID.SetTunings(Kp, Ki, Kd);
+  server.send(200, "text/plain", "");
+  saveConfig();
+}
+void ICACHE_FLASH_ATTR handleGetPID() {
+  server.send(200, "text/plain", "{ \"p\": \"" + String(Kp) + "\", \"i\": \"" + String(Ki) + "\", \"d\": \"" + String(Kd) + "\" }");
+}
+void ICACHE_FLASH_ATTR handleSetPrefs() {
+  if (server.hasArg("controller")) {
+    server.arg("controller").toUpperCase();
+    if (server.arg("controller") == "PID") {
+      current_controller = CTRL_PID;
+    } else if (server.arg("controller") == "DUMB") {
+      current_controller = CTRL_DUMB;
+    }
+  }  
+  saveConfig();
+  server.send(200, "text/plain", "");
+}
+
 void ICACHE_FLASH_ATTR handleSetOutput() {
   
 }
@@ -89,6 +117,9 @@ void ICACHE_FLASH_ATTR handleSetTime() {
 void ICACHE_FLASH_ATTR setupWebServer() {
   server.on ("/", handleRoot);
   server.on("/temps", handleTemps);
+  server.on("/pid", HTTP_GET, handleGetPID);
+  server.on("/pid", HTTP_POST, handleSetPID);
+  server.on("/controller", HTTP_POST, handleSetPrefs);
 }
 
 
