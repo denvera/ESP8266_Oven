@@ -5,6 +5,7 @@
 #include <ArduinoOTA.h>
 //#include <FS.h>
 #include <EEPROM.h>
+#include <WiFiUdp.h>
 
 #include <RingBuf.h>
 //#include <ArduinoJson.h>
@@ -17,29 +18,32 @@
 #include "max6675.h"
 
 #define EXTCONFIG
-
+// Place all below defines in config.h or update below
 #ifdef EXTCONFIG
-#include "config.h"
+  #include "config.h"
 #else
-#define USE_SSD1306
-#define OTA_NAME "ESP8266Oven"
+  #define SSID "Your SSID Here"
+  #define KEY "Your WiFi Password Here"
+  #define OTA_PASSWORD "Your OTA Password Here"
+  #define USE_SSD1306
+  #define OTA_NAME "ESP8266Oven"
+  #define RINGBUF_LEN 480
+  #define SAMPLE_INTERVAL 15000
+  #define STATE_TIMEOUT 300000
+  #define PID_INTERVAL 1000
+  #define START_TEMP 20
+  #define DEBOUNCE_TIME 50
+  #define BUTTON D0
+  #define RELAY D8
+  #define TC_DO D5
+  #define TC_CS D6
+  #define TC_CLK D7
+  #define BANDGAP 5
+  #define PREHEAT_DIFF_THRESHOLD 25
 #endif
 
-#define RINGBUF_LEN 480
-#define SAMPLE_INTERVAL 15000
-#define STATE_TIMEOUT 30000
-#define PID_INTERVAL 1000
-#define START_TEMP 20
-#define DEBOUNCE_TIME 50
-#define BUTTON D0
-#define RELAY D8
-#define TC_DO D5
-#define TC_CS D6
-#define TC_CLK D7
-#define BANDGAP 5
-
 ESP8266WebServer server(80);
-
+WiFiUDP Udp;
 
 MAX6675 thermocouple(TC_CLK, TC_CS, TC_DO);
 
@@ -55,15 +59,16 @@ enum controllers { CTRL_PID, CTRL_DUMB };
 enum states current_state = STATE_STATUS, old_state = STATE_IDLE;
 enum controllers current_controller = CTRL_PID;
 byte lastBtnState = HIGH, btnState = HIGH;
-bool output = false;
+bool output = false, preheat = false;
 struct tm timeinfo;
 
 struct PROGMEM TempSample {
 //  unsigned short index;
   float temp;
   short set_temp;
+  short pid_output;
   char timestamp[26];
-  bool output;
+  bool output;  
 };
 struct PROGMEM Config {
   double Kp;
@@ -79,12 +84,13 @@ double Setpoint, Input, Output;
 double Kp=2 , Ki=0.5, Kd=0.2;
 PID OvenPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
-int WindowSize = 5000;
+int WindowSize = 30000;
 unsigned long windowStartTime;
 
 
 
 char * ICACHE_FLASH_ATTR asctime_iso(struct tm *tim_p ,char *result);
+void sendMetric(String path, float value);
 void ICACHE_FLASH_ATTR setupWebServer();
 void ICACHE_FLASH_ATTR initScreen();
 void ICACHE_FLASH_ATTR statusScreen(String msg, int currentTemp, int setTemp);
@@ -97,9 +103,9 @@ void ICACHE_FLASH_ATTR idleScreen(String msg);
 void ICACHE_FLASH_ATTR setupOTA();
 
 void ICACHE_FLASH_ATTR setup() {  
-  pinMode(BUTTON, INPUT);
+  pinMode(BUTTON, INPUT_PULLUP);
   pinMode(RELAY, OUTPUT);
-  digitalWrite(RELAY, false);
+  digitalWrite(RELAY, LOW);
   Serial.begin(115200);
   initScreen();
   Serial.println("\n");
@@ -147,7 +153,7 @@ void ICACHE_FLASH_ATTR setup() {
   current_temp = thermocouple.readCelsius();  
   windowStartTime = millis();
   OvenPID.SetOutputLimits(0, WindowSize);
-  OvenPID.SetMode(AUTOMATIC);
+  OvenPID.SetMode(MANUAL);
 }
 
 void check_timeout() {
@@ -196,17 +202,17 @@ void ICACHE_FLASH_ATTR loop() {
       btnState = btnNow;
       if (btnState == LOW) {
         last_state_ts = millis();
+        displayWake();
         switch (current_state) {
           case STATE_IDLE:
             Serial.println("IDLE -> STATUS");
-            displayWake();
             current_state = STATE_STATUS;
             break;
           case STATE_STATUS:
             Serial.println("STATUS -> SET_TEMP");
             current_state = STATE_SET_TEMP;
             break;
-          case STATE_SET_TEMP:
+          case STATE_SET_TEMP:          
             Serial.println("SET_TEMP -> SET_TIME");
             current_state = STATE_SET_TIME;
             break;
@@ -227,7 +233,7 @@ void ICACHE_FLASH_ATTR loop() {
       if (set_temp <= 10) {
         set_temp = 0;
         output = false;
-        digitalWrite(RELAY, output);     
+        digitalWrite(RELAY, LOW);     
       }
       time_t now = time(nullptr);
       gmtime_r(&now, &timeinfo);
@@ -247,6 +253,7 @@ void ICACHE_FLASH_ATTR loop() {
       current_sample.temp = tempc;
       current_sample.output = output;
       current_sample.set_temp = set_temp;
+      current_sample.pid_output = Output;
       strncpy(current_sample.timestamp, timestamp, strlen(timestamp)+1);
       if (RingBufIsFull(temps)) {
         struct TempSample temp_temp;
@@ -274,17 +281,20 @@ void ICACHE_FLASH_ATTR loop() {
           if (set_temp == 0) { 
             //OvenPID.Reset();
             OvenPID.SetMode(MANUAL);
-            OvenPID.SetMode(AUTOMATIC);
           }
           set_temp += (set_temp == 0) ? START_TEMP : 10;
+          if (set_temp >= 350) set_temp = 350;
           OvenPID.SetMode(MANUAL);
           OvenPID.SetMode(AUTOMATIC);
+          preheat = (set_temp - current_temp > PREHEAT_DIFF_THRESHOLD);
         } else {
           if ((set_temp-10) >= START_TEMP) {
             set_temp -= 10;
             OvenPID.SetMode(MANUAL);
             OvenPID.SetMode(AUTOMATIC);
+            pid_ts = millis();
           } else {
+            preheat = false;
             set_temp = 0;
             output = false;
             OvenPID.SetMode(MANUAL);
@@ -334,22 +344,32 @@ void ICACHE_FLASH_ATTR loop() {
     Serial.println("Temp: " + String(thermocouple.readCelsius()));
     if (set_temp >= START_TEMP) {
       Input = current_temp;      
-      if (millis() - windowStartTime > WindowSize)
+      if ((pid_ts - windowStartTime) > WindowSize)
       { //time to shift the Relay Window
         windowStartTime += WindowSize;
       }
+      
       if (current_controller == CTRL_PID) {
-        if (Output < millis() - windowStartTime) {
-          //digitalWrite(RELAY_PIN, HIGH);
-          if (output != false) {
-            Serial.println("[" + String(Output) + "] ELEMENT OFF!");
-            output = false;
-          }
+        if ((set_temp - current_temp > PREHEAT_DIFF_THRESHOLD) && preheat) {
+          output = true;
         } else {
-          //digitalWrite(RELAY_PIN, LOW);
-          if (output != true) {
-            Serial.println("[" + String(Output) + "] ELEMENT ON!");
-            output = true;
+          preheat = false;
+          sendMetric("oven.pid.output", Output);
+          sendMetric("oven.pid.window_start", windowStartTime);
+          sendMetric("oven.pid.pid_ts", pid_ts);
+          sendMetric("oven.pid.window_threshold", (pid_ts - windowStartTime));
+          if ((Output <= 0) || (Output < (pid_ts - windowStartTime)) || (current_temp > set_temp+10)) {
+            //digitalWrite(RELAY_PIN, HIGH);
+            if (output != false) {
+              Serial.println("[" + String(Output) + "] ELEMENT OFF!");
+              output = false;
+            }
+          } else {
+            //digitalWrite(RELAY_PIN, LOW);
+            if (output != true) {
+              Serial.println("[" + String(Output) + "] ELEMENT ON!");
+              output = true;
+            }
           }
         }
       } else {
@@ -360,9 +380,8 @@ void ICACHE_FLASH_ATTR loop() {
       // output off
       output = false;
     }
-    digitalWrite(RELAY, output);
+    digitalWrite(RELAY, (output) ? HIGH : LOW);
   }
-  OvenPID.Compute();
   if (millis() - min_ts >= 60000) {
     min_ts = millis();
     if (set_time == 1) {
@@ -376,6 +395,7 @@ void ICACHE_FLASH_ATTR loop() {
       // Nothing
     }    
   }
+  OvenPID.Compute();
 }
 
 void saveConfig() {    
@@ -416,8 +436,16 @@ void printConfig() {
 void dumbSwitch() {
   if (current_temp <= set_temp - BANDGAP)
     output = true;
-  else if (current_temp >= set_temp + BANDGAP)
+  else if (current_temp >= set_temp)
     output = false;
+}
+
+void sendMetric(String path, float value) {
+   Udp.beginPacket("192.168.0.10", 2003);
+   time_t now = time(nullptr) - 7200;
+   String line = path + " " + String(value) + " " + String(now) + "\n";
+   Udp.write(line.c_str());
+   Udp.endPacket();
 }
 
 char * ICACHE_FLASH_ATTR

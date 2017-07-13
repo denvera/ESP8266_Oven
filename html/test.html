@@ -2,22 +2,37 @@
     <head>
         <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
         <script type="text/javascript">
-                  google.charts.load('current', {'packages':['corechart']});      
+                  google.charts.load('current', {'packages':['line', 'corechart']});      
 				  google.charts.setOnLoadCallback(drawChart);      
 				  function drawChart() {        
-				  fetch('http://192.168.0.47/temps').then((resp) => resp.json()).then(function(jsonData) {
+				  fetch('http://192.168.0.22/temps').then((resp) => resp.json()).then(function(jsonData) {
 					console.log(JSON.stringify(jsonData));
 					var data = new google.visualization.DataTable();
 					data.addColumn('datetime', 'Time');        
 					data.addColumn('number', 'Temp \xB0C');
 					data.addColumn('number', 'Set Temp \xB0C');
 					data.addColumn({type: 'boolean', role: 'certainty' })
-					var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[1], e[2], (e[3] > 0) ? true : false ] });
+					//data.addColumn('number', 'PID Output');
+					//var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[1], e[2], (e[3] > 0) ? true : false, e[4] ] });
+					var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[1], e[2], (e[3] > 0) ? true : false ]} );
 					data.addRows(chart_data);
-					var series = { 0: { }, 1: { color: 'blue', curveType: 'none',  }  };
-					var options = {'title':'Oven Temperature', colors: ['red'], pointsVisible: false, curveType: 'function', legend: { position: 'bottom' }, series: series };        					
-					var chart = new google.visualization.LineChart(document.getElementById('temps'));
+					var series = { 0: { axis: 'Temps' }, 1: { color: 'blue', curveType: 'none',  axis: 'Temps' }, 2: {}, 3: { color: 'green', axis: 'PIDOutput' }  };
+					//var axes = { x: { side: 'bottom' }, y: { Temps: {label: "Temps (Celsius)" }, PIDOutput: { label: "PID Output" } } };
+					var axes = { x: { side: 'bottom' }, y: { Temps: {label: "Temps (Celsius)" }  } };
+					var options = {'title':'Oven Temperature', colors: ['red'], pointsVisible: false, curveType: 'function', legend: { position: 'bottom' }, series: series, axes: axes };        					
+					var chart = new google.visualization.LineChart(document.getElementById('temps'));												
+					//var chart = new google.charts.Line(document.getElementById('temps'));
 					chart.draw(data, options);
+					
+					var pidData = new google.visualization.DataTable();
+					pidData.addColumn('datetime', 'Time');
+					pidData.addColumn('number', 'PID Output');
+					pidData.addColumn({type: 'boolean', role: 'certainty' })
+					var chart_data  = jsonData['temps'].map(function(e) { return [new Date(e[0]), e[4], (e[3] > 0) ? true : false ] });
+					pidData.addRows(chart_data);
+					var chart = new google.visualization.LineChart(document.getElementById('pid'));
+					var options = {'title':'PID Output', colors: ['green'], pointsVisible: false, curveType: 'function', legend: { position: 'bottom' } };
+					chart.draw(pidData, options);
 					});				  
 				  };    
         </script>
@@ -28,8 +43,9 @@
             }
         </style>
     </head>
-    <body>
+    <body>		
         <div id="temps"></div>
+        <div id="pid"></div>
 		<p align='center'>Uptime: 13:37:00</p>
     </body>
 </html>
