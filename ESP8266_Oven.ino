@@ -352,7 +352,8 @@ void ICACHE_FLASH_ATTR loop() {
       if (current_controller == CTRL_PID) {
         if ((set_temp - current_temp > PREHEAT_DIFF_THRESHOLD) && preheat) {
           output = true;
-        } else {
+          windowStartTime = millis();
+        } else {          
           preheat = false;
           sendMetric("oven.pid.output", Output);
           sendMetric("oven.pid.window_start", windowStartTime);
@@ -436,7 +437,7 @@ void printConfig() {
 void dumbSwitch() {
   if (current_temp <= set_temp - BANDGAP)
     output = true;
-  else if (current_temp >= set_temp)
+  else if (current_temp >= (set_temp))
     output = false;
 }
 
