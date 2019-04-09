@@ -1,12 +1,12 @@
 # ESP8266 Oven Controller
 ### Overview
 This is an oven controller based on the ESP8266 module and Arduino framework.
-It uses a rotary encoder for input and 128x64 OLED as a display.
+It uses a rotary encoder for input and 128x64 OLED as a display. This should work fine on other Arduino framework capable hardware too, such as the ESP32.
 
-### Configuration (config.h)
+#### Configuration (config.h)
 Copy `config_example.h` to `config.h` in the same directory as the sketches and modify at least `SSID` and `KEY`.
 
-### Other options
+#### Other options
 | Name (in config.h) | Default | Type | Description |
 |--------------------|---------|------|-------------|
 | SSID               |"your_ssid" | String | Wifi Network name (SSID) |
